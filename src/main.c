@@ -76,20 +76,30 @@ void DestroyDebugReportCallbackEXT(VkInstance instance, VkDebugReportCallbackEXT
     //}
 }
 
-void cleanup() {
-	vkDestroySemaphore(device, renderFinishedSemaphore, NULL);
-	vkDestroySemaphore(device, imageAvailableSemaphore, NULL);
-	vkDestroyCommandPool(device, commandPool, NULL);
+void cleanupSwapChain() {
 	for(unsigned int i = 0; i < globalImageCount; i++) {
 		vkDestroyFramebuffer(device, swapChainFramebuffers[i], NULL);
 	}
+	vkFreeCommandBuffers(device, commandPool, globalImageCount, commandBuffers);
+
 	vkDestroyPipeline(device, graphicsPipeline, NULL);
 	vkDestroyPipelineLayout(device, pipelineLayout, NULL);
 	vkDestroyRenderPass(device, renderPass, NULL);
-	for(unsigned int i = 0; i < globalImageCount; i ++) {
+
+	for(unsigned int i = 0; i < globalImageCount; i++) {
 		vkDestroyImageView(device, swapChainImageViews[i], NULL);
 	}
+
 	vkDestroySwapchainKHR(device, swapChain, NULL);
+}
+
+void cleanup() {
+	cleanupSwapChain();
+
+	vkDestroySemaphore(device, renderFinishedSemaphore, NULL);
+	vkDestroySemaphore(device, imageAvailableSemaphore, NULL);
+	vkDestroyCommandPool(device, commandPool, NULL);
+
 	vkDestroyDevice(device, NULL);
 	DestroyDebugReportCallbackEXT(instance, callback, NULL);
 	vkDestroySurfaceKHR(instance, surface, NULL);
@@ -163,11 +173,13 @@ VkPresentModeKHR chooseSwapPresentMode(const VkPresentModeKHR *availablePresentM
 }
 
 VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR capabilities) {
+	int width, height;
+	glfwGetWindowSize(window, &width, &height);
 	if(capabilities.currentExtent.width != (uintmax_t)(UINT32_MAX)) {
 		return capabilities.currentExtent;
 	}
 	else {
-		VkExtent2D actualExtent = {400, 400};
+		VkExtent2D actualExtent = {width, height};
 
 		actualExtent.width = max(capabilities.minImageExtent.width, min(capabilities.maxImageExtent.width, actualExtent.width));
 		actualExtent.height = max(capabilities.minImageExtent.height, min(capabilities.maxImageExtent.height, actualExtent.height));
@@ -196,6 +208,7 @@ unsigned int checkValidationLayerSupport() {
 			return 0;
 		}
 	}
+	free(availableLayers);
 	return 1;
 }
 
@@ -339,6 +352,7 @@ int checkDeviceExtensionSupported(VkPhysicalDevice vkDevice) {
 			return 0;
 		}
 	}
+	free(availableExtensions);
 	return 1;
 }
 
@@ -380,6 +394,7 @@ void pickPhysicalDevice() {
 		printf("Failed to find a suitable GPU.\n");
 		cleanup();
 	}
+	free(devices);
 }
 
 void createLogicalDevice() {
@@ -896,16 +911,49 @@ int getWindowWidth() {
 	return mode->width;
 }
 
+void recreateSwapChain() {
+	int width, height;
+    glfwGetWindowSize(window, &width, &height);
+    if (width == 0 || height == 0) return;
+	vkDeviceWaitIdle(device);
+
+	cleanupSwapChain();
+
+	createSwapChain();
+	createImageViews();
+	createRenderPass();
+	createGraphicsPipeline();
+	createFramebuffers();
+	createCommandBuffer();
+}
+
+
+static void onWindowResized(GLFWwindow *window, int width, int height) {
+	recreateSwapChain();
+}
+
 void initWindow() {
 	glfwInit();
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+	glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 	window = glfwCreateWindow(400, 400, "Vulkan", NULL, NULL);
+
+	glfwSetWindowSizeCallback(window, onWindowResized);
 }
+
 
 void drawFrame() {
 	uint32_t imageIndex;
-	vkAcquireNextImageKHR(device, swapChain, UINT_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+	VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+
+	if(result == VK_ERROR_OUT_OF_DATE_KHR) {
+		recreateSwapChain();
+		return;
+	}
+	else if(result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+		printf("Failed to acquire swap chain image.\n");
+		cleanup();
+	}
 
 	VkSubmitInfo submitInfo = {
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
@@ -923,22 +971,31 @@ void drawFrame() {
 	submitInfo.pSignalSemaphores = signalSemaphores;
 
 	if(vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE) != VK_SUCCESS) {
-		printf("Failed to submit draw commmand buffer.\n");
+		printf("Failed to submit draw command buffer.\n");
 		cleanup();
 	}
-	
+
 	VkPresentInfoKHR presentInfo = {
 		.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
 		.waitSemaphoreCount = 1,
 		.pWaitSemaphores = signalSemaphores,
 	};
-	
+
 	VkSwapchainKHR swapChains[] = {swapChain};
 	presentInfo.swapchainCount = 1;
 	presentInfo.pSwapchains = swapChains;
 	presentInfo.pImageIndices = &imageIndex;
-	
-	vkQueuePresentKHR(presentQueue, &presentInfo);
+
+	result = vkQueuePresentKHR(presentQueue, &presentInfo);
+
+	if(result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+		recreateSwapChain();
+	}
+	else if(result != VK_SUCCESS) {
+		printf("Failed to present swap chain image.\n");
+		cleanup();
+	}
+
 	vkQueueWaitIdle(presentQueue);
 }
 
