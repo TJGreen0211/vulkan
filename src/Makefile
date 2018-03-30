@@ -5,7 +5,8 @@ PROG = cube.exe
 
 MAKE_DIR = %cd%
 
-SRCS = Main.c
+SRCS = Main.c \
+	linearAlg.c
 
 
 #SRCS := $(shell echo dir1/*.c)
