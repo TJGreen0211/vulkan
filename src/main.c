@@ -26,8 +26,8 @@
 typedef struct vertexData {
 	vec2 pos;
 	vec3 color;
-	VkVertexInputBindingDescription (*getBindingDescription);
-	VkVertexInputAttributeDescription (*getAttributeDescriptions);
+	//VkVertexInputBindingDescription (*getBindingDescription);
+	//VkVertexInputAttributeDescription (*getAttributeDescriptions);
 } vertexData;
 
 typedef struct swapChainSupportDetails {
@@ -54,9 +54,9 @@ const char *deviceExtensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 unsigned int globalImageCount;
 
 const vertexData vertices[3] = {
-	{{0.0f,-0.5},{1.0f, 1.0f, 1.0f}},
-	{{0.0f,0.5},{0.0f, 1.0f, 0.0f}},
-	{{-0.0f,0.5},{0.0f, 0.0f, 1.0f}},
+	{{0.0f,-0.5},{0.0f, 0.0f, 0.0f}},
+	{{0.5f,0.5},{0.0f, 1.0f, 0.0f}},
+	{{-0.5f,0.5},{0.0f, 0.0f, 1.0f}},
 };
 
 VkInstance instance;
@@ -86,6 +86,7 @@ VkSemaphore renderFinishedSemaphore;
 VkDebugReportCallbackEXT callback;
 
 static VkVertexInputBindingDescription getBindingDescription() {
+	printf("Size of vertices[0]: %zu\n\n", sizeof(vertices[0]));
 	VkVertexInputBindingDescription bindingDescription ={
 		.binding = 0,
 		.stride = sizeof(vertexData),
@@ -136,7 +137,7 @@ void cleanupSwapChain() {
 
 void cleanup() {
 	cleanupSwapChain();
-	
+
 	vkDestroyBuffer(device, vertexBuffer, NULL);
 	vkFreeMemory(device, vertexBufferMemory, NULL);
 
@@ -912,19 +913,16 @@ void createCommandBuffer() {
 		renderPassInfo.pClearValues = &clearColor;
 
 		vkCmdBeginRenderPass(commandBuffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-		
+
 		vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 		VkBuffer vertexBuffers[] = {vertexBuffer};
 		VkDeviceSize offsets[] = {0};
 		vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);
-		vkCmdDraw(commandBuffers[i], (uint32_t)sizeof(vertices), 1, 0, 0);
-		
-		
-		
+		vkCmdDraw(commandBuffers[i], (uint32_t)(sizeof(vertices)/sizeof(vertices[0])), 1, 0, 0);
+		//printf("(uint32_t)sizeof(vertices): %d\n", (uint32_t)sizeof(vertices)/sizeof(vertices[0]));
+
 		vkCmdEndRenderPass(commandBuffers[i]);
-		
-		
-		
+
 		if(vkEndCommandBuffer(commandBuffers[i]) != VK_SUCCESS) {
 			printf("Failed to record command buffer.\n");
 			cleanup();
@@ -946,10 +944,9 @@ void createSemaphores() {
 uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
 	VkPhysicalDeviceMemoryProperties memProperties;
 	vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
-	
+
 	for(uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
-		printf("bit i: %d\n", 1 << i);
-		if(typeFilter & (1 << i)) {
+		if(typeFilter & (1 << i) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
 			return i;
 		}
 	}
@@ -960,10 +957,9 @@ uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
 }
 
 void createVertexBuffer() {
-	//printf("vertices[0] %zu, sizeof(vertices): %zu", sizeof(vertices[0]), sizeof(vertices));
 	VkBufferCreateInfo bufferInfo = {
 		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-		.size = sizeof(vertices[0])*sizeof(vertices),
+		.size = sizeof(vertices),
 		.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
 		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
 	};
@@ -976,22 +972,25 @@ void createVertexBuffer() {
 	VkMemoryRequirements memRequirements;
 	vkGetBufferMemoryRequirements(device, vertexBuffer, &memRequirements);
 
-	printf("\n\nfindMemoryType return:%d\n\n", findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT));
 	VkMemoryAllocateInfo allocInfo = {
 		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
 		.allocationSize = memRequirements.size,
 		.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT),
 	};
-	
+
 	if(vkAllocateMemory(device, &allocInfo, NULL, &vertexBufferMemory) != VK_SUCCESS) {
 		printf("Failed to allocate vertex buffer memory.\n");
 		cleanup();
 	}
-	vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
-	
+	printf("vkBindBufferMemory: %d\n", vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0));
+
 	void *data;
-	vkMapMemory(device, vertexBufferMemory, 0, bufferInfo.size, 0, &data);
-	memcpy(data, vertices, (size_t)bufferInfo.size);
+	printf("vkMapMemory: %d\n", vkMapMemory(device, vertexBufferMemory, 0, bufferInfo.size, 0, &data));
+	memcpy(data, vertices, sizeof(vertices));
+	//for(int i = 0; i < sizeof(vertices)/sizeof(vertices[0]); i++) {
+	for(int i = 0; i < 10; i++) {
+		printf("%f\n", *((float *) ((char *) data + sizeof(float) * i)));
+	}
 	vkUnmapMemory(device, vertexBufferMemory);
 }
 
