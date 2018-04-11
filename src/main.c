@@ -987,10 +987,6 @@ void createVertexBuffer() {
 	void *data;
 	printf("vkMapMemory: %d\n", vkMapMemory(device, vertexBufferMemory, 0, bufferInfo.size, 0, &data));
 	memcpy(data, vertices, sizeof(vertices));
-	//for(int i = 0; i < sizeof(vertices)/sizeof(vertices[0]); i++) {
-	for(int i = 0; i < 10; i++) {
-		printf("%f\n", *((float *) ((char *) data + sizeof(float) * i)));
-	}
 	vkUnmapMemory(device, vertexBufferMemory);
 }
 
