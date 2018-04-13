@@ -24,8 +24,8 @@
 #endif
 
 typedef struct vertexData {
-	vec2 pos;
-	vec3 color;
+	float pos[2];
+	float color[3];
 	//VkVertexInputBindingDescription (*getBindingDescription);
 	//VkVertexInputAttributeDescription (*getAttributeDescriptions);
 } vertexData;
@@ -956,6 +956,11 @@ uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
 	return 2;
 }
 
+typedef struct testStruct {
+	float one[2];
+	float two;
+} testStruct;
+
 void createVertexBuffer() {
 	VkBufferCreateInfo bufferInfo = {
 		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -985,8 +990,32 @@ void createVertexBuffer() {
 	printf("vkBindBufferMemory: %d\n", vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0));
 
 	void *data;
+
+	vertexData *testData = malloc(3*sizeof(vertexData));
+	memcpy(testData, vertices, sizeof(vertices));
 	printf("vkMapMemory: %d\n", vkMapMemory(device, vertexBufferMemory, 0, bufferInfo.size, 0, &data));
 	memcpy(data, vertices, sizeof(vertices));
+	//for(int i = 0; i < sizeof(vertices)/sizeof(vertices[0]); i++) {
+		
+	testStruct test[3] = {
+		{{1.0, 21.0}},
+		{{3.0, 22.0}},
+		{{5.0, 23.0}}
+	};
+	
+	float asdf[2] = {1.0, 2.0};
+	
+	//printf(sizeof())
+	void *two = malloc(3*sizeof(testStruct));
+	memcpy(two, test, 3*sizeof(testStruct));
+	for (int i = 0; i < 9; i++) {
+		//printf("%f\n", *((float *) ((char *) two + sizeof(float) * i)));
+	}
+
+	for(int i = 0; i < 15; i++) {
+		printf("%f\n", *((float *) ((char *) data + sizeof(float) * i)));
+		//printf("%f %f\n", testData->color.x, testData->color.y);
+	}
 	vkUnmapMemory(device, vertexBufferMemory);
 }
 
