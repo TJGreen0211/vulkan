@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include "linearAlg.h"
+#include "arcballCamera.h"
 
 #define _CRT_SECURE_NO_DEPRECATE 1
 //#define _CRT_SECURE_NO_WARNINGS 1
@@ -29,6 +30,16 @@ typedef struct vertexData {
 	//VkVertexInputBindingDescription (*getBindingDescription);
 	//VkVertexInputAttributeDescription (*getAttributeDescriptions);
 } vertexData;
+
+float model[16];
+//double view[4][4];
+//double projection[4][4];
+
+typedef struct uniformBufferObject {
+	float model[16];
+	float view[16];
+	float projection[16];
+} uniformBufferObject;
 
 typedef struct swapChainSupportDetails {
 	VkSurfaceCapabilitiesKHR capabilities;
@@ -53,10 +64,15 @@ const char *deviceExtensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
 unsigned int globalImageCount;
 
-const vertexData vertices[3] = {
-	{{0.0f,-0.5},{1.0f, 1.0f, 1.0f}},
-	{{0.5f,0.5},{0.0f, 1.0f, 0.0f}},
-	{{-0.5f,0.5},{0.0f, 0.0f, 1.0f}},
+const vertexData vertices[4] = {
+	{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+    {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+    {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+    {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}},
+};
+
+const uint16_t vertexIndices[6] = {
+	0, 1, 2, 2, 3, 0
 };
 
 VkInstance instance;
@@ -78,7 +94,14 @@ VkCommandPool commandPool;
 VkCommandBuffer *commandBuffers;
 VkBuffer vertexBuffer;
 VkDeviceMemory vertexBufferMemory;
+VkBuffer indexBuffer;
+VkDeviceMemory indexBufferMemory;
+VkBuffer uniformBuffer;
+VkDeviceMemory uniformBufferMemory;
 GLFWwindow *window;
+
+VkDescriptorSetLayout descriptorSetLayout;
+
 
 VkSemaphore imageAvailableSemaphore;
 VkSemaphore renderFinishedSemaphore;
@@ -136,6 +159,13 @@ void cleanupSwapChain() {
 
 void cleanup() {
 	cleanupSwapChain();
+
+	vkDestroyDescriptorSetLayout(device, descriptorSetLayout, NULL);
+	vkDestroyBuffer(device, uniformBuffer, NULL);
+	vkFreeMemory(device, uniformBufferMemory, NULL);
+
+	vkDestroyBuffer(device, indexBuffer, NULL);
+	vkFreeMemory(device, indexBufferMemory, NULL);
 
 	vkDestroyBuffer(device, vertexBuffer, NULL);
 	vkFreeMemory(device, vertexBufferMemory, NULL);
@@ -766,7 +796,7 @@ void createGraphicsPipeline() {
 		//.alphaBlendOP = VK_BLEND_OP_ADD,
 	};
 
-	//colorBlendAttachment.blendEnable = VK_TRUE;
+	//colorBlendAttachment.blendescriptorSetLayoutdEnable = VK_TRUE;
 	//colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
 	//colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
 	//colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
@@ -798,10 +828,11 @@ void createGraphicsPipeline() {
 
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-		.setLayoutCount = 0,
-		.pSetLayouts = NULL,
-		.pushConstantRangeCount = 0,
-		.pPushConstantRanges = 0,
+		.setLayoutCount = 1,
+		.pSetLayouts = &descriptorSetLayout,
+		//.pSetLayouts = NULL,
+		//.pushConstantRangeCount = 0,
+		//.pPushConstantRanges = 0,
 	};
 
 	if(vkCreatePipelineLayout(device, &pipelineLayoutInfo, NULL, &pipelineLayout) != VK_SUCCESS) {
@@ -917,7 +948,9 @@ void createCommandBuffer() {
 		VkBuffer vertexBuffers[] = {vertexBuffer};
 		VkDeviceSize offsets[] = {0};
 		vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);
-		vkCmdDraw(commandBuffers[i], (uint32_t)(sizeof(vertices)/sizeof(vertices[0])), 1, 0, 0);
+		vkCmdBindIndexBuffer(commandBuffers[i], indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+		//vkCmdDraw(commandBuffers[i], (uint32_t)(sizeof(vertices)/sizeof(vertices[0])), 1, 0, 0);
+		vkCmdDrawIndexed(commandBuffers[i], (uint32_t)(sizeof(vertexIndices)/sizeof(vertexIndices[0])), 1, 0, 0, 0);
 		//printf("(uint32_t)sizeof(vertices): %d\n", (uint32_t)sizeof(vertices)/sizeof(vertices[0]));
 
 		vkCmdEndRenderPass(commandBuffers[i]);
@@ -967,16 +1000,16 @@ void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyF
 		printf("Failed to create vertex buffer.\n");
 		cleanup();
 	}
-	
+
 	VkMemoryRequirements memRequirements;
 	vkGetBufferMemoryRequirements(device, *buffer, &memRequirements);
-	
+
 	VkMemoryAllocateInfo allocInfo = {
 		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
 		.allocationSize = memRequirements.size,
 		.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties),
 	};
-	
+
 	if(vkAllocateMemory(device, &allocInfo, NULL, bufferMemory) != VK_SUCCESS) {
 		printf("Failed to allocate vertex buffer memory.\n");
 		cleanup();
@@ -993,14 +1026,14 @@ void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) {
 	};
 	VkCommandBuffer commandBuffer;
 	vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer);
-	
+
 	VkCommandBufferBeginInfo beginInfo = {
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
 	};
-	
+
 	vkBeginCommandBuffer(commandBuffer, &beginInfo);
-	
+
 	VkBufferCopy copyRegion = {
 		.srcOffset = 0,
 		.dstOffset = 0,
@@ -1008,7 +1041,7 @@ void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) {
 	};
 	vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
 	vkEndCommandBuffer(commandBuffer);
-	
+
 	VkSubmitInfo submitInfo = {
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		.commandBufferCount = 1,
@@ -1016,13 +1049,13 @@ void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) {
 	};
 	vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
 	vkQueueWaitIdle(graphicsQueue);
-	
-	vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);	
+
+	vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
 }
 
 void createVertexBuffer() {
 	VkDeviceSize size = sizeof(vertices);
-	
+
 	VkBuffer stagingBuffer;
 	VkDeviceMemory stagingBufferMemory;
 	createBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &stagingBuffer, &stagingBufferMemory);
@@ -1030,17 +1063,63 @@ void createVertexBuffer() {
 	void *data;
 	vkMapMemory(device, stagingBufferMemory, 0, size, 0, &data);
 	memcpy(data, vertices, sizeof(vertices));
+	//printf("asdf: %zu\nS", sizeof(vertices));
 	//for(int i = 0; i < 15; i++) {
 	//	printf("%f\n", *((float *) ((char *) data + sizeof(float) * i)));
 	//	//printf("%f %f\n", testData->color.x, testData->color.y);
 	//}
 	vkUnmapMemory(device, stagingBufferMemory);
-	
+
 	createBuffer(size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &vertexBuffer, &vertexBufferMemory);
 	copyBuffer(stagingBuffer, vertexBuffer, size);
-	
+
 	vkDestroyBuffer(device, stagingBuffer, NULL);
 	vkFreeMemory(device, stagingBufferMemory, NULL);
+}
+
+void createIndexBuffer() {
+	VkDeviceSize size = sizeof(vertexIndices);
+
+	VkBuffer stagingBuffer;
+	VkDeviceMemory stagingBufferMemory;
+	createBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &stagingBuffer, &stagingBufferMemory);
+
+	void *data;
+	vkMapMemory(device, stagingBufferMemory, 0, size, 0, &data);
+	memcpy(data, vertexIndices, sizeof(vertexIndices));
+	vkUnmapMemory(device, stagingBufferMemory);
+
+	createBuffer(size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &indexBuffer, &indexBufferMemory);
+	copyBuffer(stagingBuffer, indexBuffer, size);
+
+	vkDestroyBuffer(device, stagingBuffer, NULL);
+	vkFreeMemory(device, stagingBufferMemory, NULL);
+}
+
+void createDescriptorSetLayout() {
+	VkDescriptorSetLayoutBinding uboLayoutBinding = {
+		.binding = 0,
+		.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+		.descriptorCount = 1,
+		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+		.pImmutableSamplers = NULL,
+	};
+
+	VkDescriptorSetLayoutCreateInfo layoutInfo = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		.bindingCount = 1,
+		.pBindings = &uboLayoutBinding,
+	};
+
+	if (vkCreateDescriptorSetLayout(device, &layoutInfo, NULL, &descriptorSetLayout) != VK_SUCCESS) {
+		printf("Failed to create descriptor set layout.");
+		cleanup();
+	}
+}
+
+void createUniformBuffer() {
+	VkDeviceSize bufferSize = sizeof(model);
+	createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &uniformBuffer, &uniformBufferMemory);
 }
 
 void initVulkan() {
@@ -1052,10 +1131,15 @@ void initVulkan() {
 	createSwapChain();
 	createImageViews();
 	createRenderPass();
+
+	createDescriptorSetLayout();
+
 	createGraphicsPipeline();
 	createFramebuffers();
 	createCommandPool();
 	createVertexBuffer();
+	createIndexBuffer();
+	createUniformBuffer();
 	createCommandBuffer();
 	createSemaphores();
 }
@@ -1158,12 +1242,72 @@ void drawFrame() {
 	vkQueueWaitIdle(presentQueue);
 }
 
+void updateUniformBuffer(double *deltaTime, double *lastFrame) {
+	double currentFrame = glfwGetTime();
+	*deltaTime = currentFrame - *lastFrame;
+	*lastFrame = currentFrame;
+
+	mat4 m = scale(0.5);
+	mat4 v = getViewMatrix();
+	mat4 p = perspective(45.0, swapChainExtent.width / swapChainExtent.height, 0.5, 100000);
+	p.m[1][1] *= -1;
+
+	//or(int i = 0; i < 4; i++) {
+	//	for(int j = 0; j < 4; j++) {
+	//		printf("%f, ", m.m[i][j]);
+	//	}
+	//	printf("\n");
+	//
+
+	float asdf[16] = {(float)m.m[0][0], (float)m.m[0][1], (float)m.m[0][2], (float)m.m[0][3],
+		(float)m.m[1][0], (float)m.m[1][1], (float)m.m[1][2], (float)m.m[1][3],
+		(float)m.m[2][0], (float)m.m[2][1], (float)m.m[2][2], (float)m.m[2][3],
+		(float)m.m[3][0], (float)m.m[3][1], (float)m.m[3][2], (float)m.m[3][3]};
+
+	uniformBufferObject ubo[1] = {
+		{{
+		(float)m.m[0][0], (float)m.m[0][1], (float)m.m[0][2], (float)m.m[0][3],
+		(float)m.m[1][0], (float)m.m[1][1], (float)m.m[1][2], (float)m.m[1][3],
+		(float)m.m[2][0], (float)m.m[2][1], (float)m.m[2][2], (float)m.m[2][3],
+		(float)m.m[3][0], (float)m.m[3][1], (float)m.m[3][2], (float)m.m[3][3]},
+		{
+		(float)v.m[0][0], (float)v.m[0][1], (float)v.m[0][2], (float)v.m[0][3],
+		(float)v.m[1][0], (float)v.m[1][1], (float)v.m[1][2], (float)v.m[1][3],
+		(float)v.m[2][0], (float)v.m[2][1], (float)v.m[2][2], (float)v.m[2][3],
+		(float)v.m[3][0], (float)v.m[3][1], (float)v.m[3][2], (float)v.m[3][3]},
+		{
+		(float)p.m[0][0], (float)p.m[0][1], (float)p.m[0][2], (float)p.m[0][3],
+		(float)p.m[1][0], (float)p.m[1][1], (float)p.m[1][2], (float)p.m[1][3],
+		(float)p.m[2][0], (float)p.m[2][1], (float)p.m[2][2], (float)p.m[2][3],
+		(float)p.m[3][0], (float)p.m[3][1], (float)p.m[3][2], (float)p.m[3][3]}}
+
+	};
+
+	//printf("asdf: %zu, %zu\n", sizeof(ubo), sizeof(uniformBufferObject));
+	void *data;
+	vkMapMemory(device, uniformBufferMemory, 0, sizeof(model), 0, &data);
+	memcpy(data, asdf, sizeof(model));
+	vkUnmapMemory(device, uniformBufferMemory);
+
+		//printf("asdf: %zu\nS", sizeof(vertices));
+	for(int i = 0; i < 15; i++) {
+		printf("%f\n", *((float *) ((char *) data + sizeof(float) * i)));
+	//	//printf("%f %f\n", testData->color.x, testData->color.y);
+	}
+	printf("\n");
+}
+
 void mainLoop() {
+	double deltaTime = 0.0;
+	double lastFrame = 0.0;
 	while(!glfwWindowShouldClose(window))
 	{
 		glfwPollEvents();
+
+		updateUniformBuffer(&deltaTime, &lastFrame);
 		drawFrame();
 	}
+	vkDeviceWaitIdle(device);
 }
 
 void run() {
