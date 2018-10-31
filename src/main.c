@@ -96,8 +96,8 @@ VkBuffer vertexBuffer;
 VkDeviceMemory vertexBufferMemory;
 VkBuffer indexBuffer;
 VkDeviceMemory indexBufferMemory;
-VkBuffer uniformBuffer;
-VkDeviceMemory uniformBufferMemory;
+VkBuffer *uniformBuffer;
+VkDeviceMemory *uniformBufferMemory;
 GLFWwindow *window;
 
 VkDescriptorSetLayout descriptorSetLayout;
@@ -161,8 +161,11 @@ void cleanup() {
 	cleanupSwapChain();
 
 	vkDestroyDescriptorSetLayout(device, descriptorSetLayout, NULL);
-	vkDestroyBuffer(device, uniformBuffer, NULL);
-	vkFreeMemory(device, uniformBufferMemory, NULL);
+	
+	for (unsigned int i = 0; i < globalImageCount; i++) {
+		vkDestroyBuffer(device, uniformBuffer[i], NULL);
+		vkFreeMemory(device, uniformBufferMemory[i], NULL);
+	}
 
 	vkDestroyBuffer(device, indexBuffer, NULL);
 	vkFreeMemory(device, indexBufferMemory, NULL);
@@ -1118,8 +1121,14 @@ void createDescriptorSetLayout() {
 }
 
 void createUniformBuffer() {
-	VkDeviceSize bufferSize = sizeof(model);
-	createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &uniformBuffer, &uniformBufferMemory);
+	
+	VkDeviceSize bufferSize = sizeof(uniformBufferObject);
+	uniformBuffer = malloc(sizeof(VkBuffer)*globalImageCount);
+	uniformBufferMemory = malloc(sizeof(VkDeviceMemory)*globalImageCount);
+	
+	for(unsigned int i = 0; i < globalImageCount; i++) {
+		createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &uniformBuffer[i], &uniformBufferMemory[i]);
+	}
 }
 
 void initVulkan() {
@@ -1184,10 +1193,63 @@ void initWindow() {
 	glfwSetWindowSizeCallback(window, onWindowResized);
 }
 
+void updateUniformBuffer(double *deltaTime, double *lastFrame, uint32_t currentImage) {
+	double currentFrame = glfwGetTime();
+	*deltaTime = currentFrame - *lastFrame;
+	*lastFrame = currentFrame;
+
+	mat4 m = scale(0.5);
+	mat4 v = getViewMatrix();
+	mat4 p = perspective(45.0, swapChainExtent.width / swapChainExtent.height, 0.5, 100000);
+	p.m[1][1] *= -1;
+
+	//or(int i = 0; i < 4; i++) {
+	//	for(int j = 0; j < 4; j++) {
+	//		printf("%f, ", m.m[i][j]);
+	//	}
+	//	printf("\n");
+	//
+
+	uniformBufferObject ubo[1] = {
+		{{
+		(float)m.m[0][0], (float)m.m[0][1], (float)m.m[0][2], (float)m.m[0][3],
+		(float)m.m[1][0], (float)m.m[1][1], (float)m.m[1][2], (float)m.m[1][3],
+		(float)m.m[2][0], (float)m.m[2][1], (float)m.m[2][2], (float)m.m[2][3],
+		(float)m.m[3][0], (float)m.m[3][1], (float)m.m[3][2], (float)m.m[3][3]},
+		{
+		(float)v.m[0][0], (float)v.m[0][1], (float)v.m[0][2], (float)v.m[0][3],
+		(float)v.m[1][0], (float)v.m[1][1], (float)v.m[1][2], (float)v.m[1][3],
+		(float)v.m[2][0], (float)v.m[2][1], (float)v.m[2][2], (float)v.m[2][3],
+		(float)v.m[3][0], (float)v.m[3][1], (float)v.m[3][2], (float)v.m[3][3]},
+		{
+		(float)p.m[0][0], (float)p.m[0][1], (float)p.m[0][2], (float)p.m[0][3],
+		(float)p.m[1][0], (float)p.m[1][1], (float)p.m[1][2], (float)p.m[1][3],
+		(float)p.m[2][0], (float)p.m[2][1], (float)p.m[2][2], (float)p.m[2][3],
+		(float)p.m[3][0], (float)p.m[3][1], (float)p.m[3][2], (float)p.m[3][3]}}
+
+	};
+
+	//printf("asdf: %zu, %zu\n", sizeof(ubo), sizeof(uniformBufferObject));
+	void *data;
+	vkMapMemory(device, uniformBufferMemory[currentImage], 0, sizeof(ubo), 0, &data);
+	memcpy(data, (const void *)&ubo[0], sizeof(ubo));
+	vkUnmapMemory(device, uniformBufferMemory[currentImage]);
+
+	for(int i = 0; i < 48; i++) {
+		printf("%f, ", *((float *) ((char *) data + sizeof(float) * i)));
+		if((i+1)%4 == 0) printf("\n");
+	}
+	printf("\n");
+}
+
 
 void drawFrame() {
+	double deltaTime = 0.0;
+	double lastFrame = 0.0;
+	
 	uint32_t imageIndex;
 	VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT_MAX, imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+	
 
 	if(result == VK_ERROR_OUT_OF_DATE_KHR) {
 		recreateSwapChain();
@@ -1197,6 +1259,7 @@ void drawFrame() {
 		printf("Failed to acquire swap chain image.\n");
 		cleanup();
 	}
+	updateUniformBuffer(&deltaTime, &lastFrame, imageIndex);
 
 	VkSubmitInfo submitInfo = {
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
@@ -1242,69 +1305,11 @@ void drawFrame() {
 	vkQueueWaitIdle(presentQueue);
 }
 
-void updateUniformBuffer(double *deltaTime, double *lastFrame) {
-	double currentFrame = glfwGetTime();
-	*deltaTime = currentFrame - *lastFrame;
-	*lastFrame = currentFrame;
-
-	mat4 m = scale(0.5);
-	mat4 v = getViewMatrix();
-	mat4 p = perspective(45.0, swapChainExtent.width / swapChainExtent.height, 0.5, 100000);
-	p.m[1][1] *= -1;
-
-	//or(int i = 0; i < 4; i++) {
-	//	for(int j = 0; j < 4; j++) {
-	//		printf("%f, ", m.m[i][j]);
-	//	}
-	//	printf("\n");
-	//
-
-	float asdf[16] = {(float)m.m[0][0], (float)m.m[0][1], (float)m.m[0][2], (float)m.m[0][3],
-		(float)m.m[1][0], (float)m.m[1][1], (float)m.m[1][2], (float)m.m[1][3],
-		(float)m.m[2][0], (float)m.m[2][1], (float)m.m[2][2], (float)m.m[2][3],
-		(float)m.m[3][0], (float)m.m[3][1], (float)m.m[3][2], (float)m.m[3][3]};
-
-	uniformBufferObject ubo[1] = {
-		{{
-		(float)m.m[0][0], (float)m.m[0][1], (float)m.m[0][2], (float)m.m[0][3],
-		(float)m.m[1][0], (float)m.m[1][1], (float)m.m[1][2], (float)m.m[1][3],
-		(float)m.m[2][0], (float)m.m[2][1], (float)m.m[2][2], (float)m.m[2][3],
-		(float)m.m[3][0], (float)m.m[3][1], (float)m.m[3][2], (float)m.m[3][3]},
-		{
-		(float)v.m[0][0], (float)v.m[0][1], (float)v.m[0][2], (float)v.m[0][3],
-		(float)v.m[1][0], (float)v.m[1][1], (float)v.m[1][2], (float)v.m[1][3],
-		(float)v.m[2][0], (float)v.m[2][1], (float)v.m[2][2], (float)v.m[2][3],
-		(float)v.m[3][0], (float)v.m[3][1], (float)v.m[3][2], (float)v.m[3][3]},
-		{
-		(float)p.m[0][0], (float)p.m[0][1], (float)p.m[0][2], (float)p.m[0][3],
-		(float)p.m[1][0], (float)p.m[1][1], (float)p.m[1][2], (float)p.m[1][3],
-		(float)p.m[2][0], (float)p.m[2][1], (float)p.m[2][2], (float)p.m[2][3],
-		(float)p.m[3][0], (float)p.m[3][1], (float)p.m[3][2], (float)p.m[3][3]}}
-
-	};
-
-	//printf("asdf: %zu, %zu\n", sizeof(ubo), sizeof(uniformBufferObject));
-	void *data;
-	vkMapMemory(device, uniformBufferMemory, 0, sizeof(model), 0, &data);
-	memcpy(data, asdf, sizeof(model));
-	vkUnmapMemory(device, uniformBufferMemory);
-
-		//printf("asdf: %zu\nS", sizeof(vertices));
-	for(int i = 0; i < 15; i++) {
-		printf("%f\n", *((float *) ((char *) data + sizeof(float) * i)));
-	//	//printf("%f %f\n", testData->color.x, testData->color.y);
-	}
-	printf("\n");
-}
-
 void mainLoop() {
-	double deltaTime = 0.0;
-	double lastFrame = 0.0;
 	while(!glfwWindowShouldClose(window))
 	{
 		glfwPollEvents();
 
-		updateUniformBuffer(&deltaTime, &lastFrame);
 		drawFrame();
 	}
 	vkDeviceWaitIdle(device);
