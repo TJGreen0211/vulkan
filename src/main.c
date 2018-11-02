@@ -102,6 +102,8 @@ GLFWwindow *window;
 
 VkDescriptorSetLayout descriptorSetLayout;
 
+VkDescriptorPool descriptorPool;
+VkDescriptorSet *descriptorSets;
 
 VkSemaphore imageAvailableSemaphore;
 VkSemaphore renderFinishedSemaphore;
@@ -159,6 +161,8 @@ void cleanupSwapChain() {
 
 void cleanup() {
 	cleanupSwapChain();
+	
+	vkDestroyDescriptorPool(device, descriptorPool, NULL);
 
 	vkDestroyDescriptorSetLayout(device, descriptorSetLayout, NULL);
 	
@@ -947,14 +951,15 @@ void createCommandBuffer() {
 
 		vkCmdBeginRenderPass(commandBuffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-		vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
-		VkBuffer vertexBuffers[] = {vertexBuffer};
-		VkDeviceSize offsets[] = {0};
-		vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);
-		vkCmdBindIndexBuffer(commandBuffers[i], indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-		//vkCmdDraw(commandBuffers[i], (uint32_t)(sizeof(vertices)/sizeof(vertices[0])), 1, 0, 0);
-		vkCmdDrawIndexed(commandBuffers[i], (uint32_t)(sizeof(vertexIndices)/sizeof(vertexIndices[0])), 1, 0, 0, 0);
-		//printf("(uint32_t)sizeof(vertices): %d\n", (uint32_t)sizeof(vertices)/sizeof(vertices[0]));
+			vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+			VkBuffer vertexBuffers[] = {vertexBuffer};
+			VkDeviceSize offsets[] = {0};
+			vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);
+			vkCmdBindIndexBuffer(commandBuffers[i], indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+			//vkCmdBindDescriptorSets(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[i], 0, NULL);
+			//vkCmdDraw(commandBuffers[i], (uint32_t)(sizeof(vertices)/sizeof(vertices[0])), 1, 0, 0);
+			vkCmdDrawIndexed(commandBuffers[i], (uint32_t)(sizeof(vertexIndices)/sizeof(vertexIndices[0])), 1, 0, 0, 0);
+			//printf("(uint32_t)sizeof(vertices): %d\n", (uint32_t)sizeof(vertices)/sizeof(vertices[0]));
 
 		vkCmdEndRenderPass(commandBuffers[i]);
 
@@ -1131,6 +1136,63 @@ void createUniformBuffer() {
 	}
 }
 
+void createDescriptorSets() {
+	VkDescriptorSetLayout *layouts;
+	layouts = malloc(sizeof(VkDescriptorSetLayout)*globalImageCount);
+	VkDescriptorSetAllocateInfo allocInfo = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+		.descriptorPool = descriptorPool,
+		.descriptorSetCount = 1,
+		.pSetLayouts = &descriptorSetLayout,
+	};
+	
+	descriptorSets = malloc(sizeof(VkDescriptorSet)*globalImageCount);
+	if(vkAllocateDescriptorSets(device, &allocInfo, descriptorSets) != VK_SUCCESS) {
+		printf("Failed to allocate descriptor sets.");
+	}
+	
+	for(unsigned int i = 0; i < globalImageCount; i++) {
+		VkDescriptorBufferInfo bufferInfo = {
+			.buffer = uniformBuffer[i],
+			.offset = 0,
+			.range = sizeof(uniformBufferObject),
+		};
+		
+		VkWriteDescriptorSet descriptorWrite = {
+			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstSet = descriptorSets[i],
+			.dstBinding = 0,
+			.dstArrayElement = 0,
+			.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			.descriptorCount = 1,
+			.pBufferInfo = &bufferInfo,
+			.pImageInfo = NULL,
+			.pTexelBufferView = NULL,
+		};
+		
+		//vkUpdateDescriptorSets(device, 1, descriptorWrite, 0, NULL);
+	}
+}
+
+void createDescriptorPool() {
+	VkDescriptorPoolSize poolSize = {
+		.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+		.descriptorCount = globalImageCount,
+	};
+	
+	VkDescriptorPoolCreateInfo poolInfo = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+		.poolSizeCount = 1,
+		.pPoolSizes = &poolSize,
+		.maxSets = globalImageCount,
+	};
+	
+	if(vkCreateDescriptorPool(device, &poolInfo, NULL, &descriptorPool) != VK_SUCCESS) {
+		printf("Failed to create descriptor pool.");
+		cleanup();
+	}
+}
+
 void initVulkan() {
 	createInstance();
 	setupDebugCallback();
@@ -1149,6 +1211,8 @@ void initVulkan() {
 	createVertexBuffer();
 	createIndexBuffer();
 	createUniformBuffer();
+	createDescriptorPool();
+	createDescriptorSets();
 	createCommandBuffer();
 	createSemaphores();
 }
@@ -1235,11 +1299,11 @@ void updateUniformBuffer(double *deltaTime, double *lastFrame, uint32_t currentI
 	memcpy(data, (const void *)&ubo[0], sizeof(ubo));
 	vkUnmapMemory(device, uniformBufferMemory[currentImage]);
 
-	for(int i = 0; i < 48; i++) {
-		printf("%f, ", *((float *) ((char *) data + sizeof(float) * i)));
-		if((i+1)%4 == 0) printf("\n");
-	}
-	printf("\n");
+	//for(int i = 0; i < 48; i++) {
+	//	printf("%f, ", *((float *) ((char *) data + sizeof(float) * i)));
+	//	if((i+1)%4 == 0) printf("\n");
+	//}
+	//printf("\n");
 }
 
 
