@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include <GLFW/glfw3.h>
+#include <STB/stb_image.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -104,6 +105,9 @@ VkDescriptorSetLayout descriptorSetLayout;
 
 VkDescriptorPool descriptorPool;
 VkDescriptorSet *descriptorSets;
+
+VkImage textureImage;
+VkDeviceMemory textureImageMemory;
 
 VkSemaphore imageAvailableSemaphore;
 VkSemaphore renderFinishedSemaphore;
@@ -1197,6 +1201,33 @@ void createDescriptorPool() {
 	}
 }
 
+void createTextureImage() {
+	int texWidth, texHeight, texChannels;
+	stbi_uc *pixels = stbi_load("textures/earth.png", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+	VkDeviceSize imageSize = texWidth * texHeight * 4;
+	
+	if(!pixels) {
+		printf("Failed to load texture");
+		cleanup();
+	}
+	
+	VkBuffer stagingBuffer;
+	VkDeviceMemory stagingBufferMemory;
+	
+	createBuffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &stagingBuffer, &stagingBufferMemory);
+
+	void *data;
+	vkMapMemory(device, stagingBufferMemory, 0, imageSize, 0, &data);
+		memcpy(data, (const void *)pixels, imageSize);
+	vkUnmapMemory(device, stagingBufferMemory);
+	
+	stbi_image_free(pixels);
+	
+	vkDestroyBuffer(device, stagingBuffer, NULL);
+	vkFreeMemory(device, stagingBufferMemory, NULL);
+
+}
+
 void initVulkan() {
 	createInstance();
 	setupDebugCallback();
@@ -1212,6 +1243,7 @@ void initVulkan() {
 	createGraphicsPipeline();
 	createFramebuffers();
 	createCommandPool();
+	createTextureImage();
 	createVertexBuffer();
 	createIndexBuffer();
 	createUniformBuffer();
