@@ -956,7 +956,7 @@ void createCommandBuffer() {
 			VkDeviceSize offsets[] = {0};
 			vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);
 			vkCmdBindIndexBuffer(commandBuffers[i], indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-			//vkCmdBindDescriptorSets(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[i], 0, NULL);
+			vkCmdBindDescriptorSets(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[i], 0, NULL);
 			//vkCmdDraw(commandBuffers[i], (uint32_t)(sizeof(vertices)/sizeof(vertices[0])), 1, 0, 0);
 			vkCmdDrawIndexed(commandBuffers[i], (uint32_t)(sizeof(vertexIndices)/sizeof(vertexIndices[0])), 1, 0, 0, 0);
 			//printf("(uint32_t)sizeof(vertices): %d\n", (uint32_t)sizeof(vertices)/sizeof(vertices[0]));
@@ -1139,11 +1139,15 @@ void createUniformBuffer() {
 void createDescriptorSets() {
 	VkDescriptorSetLayout *layouts;
 	layouts = malloc(sizeof(VkDescriptorSetLayout)*globalImageCount);
+
+	for(unsigned int i = 0; i < globalImageCount; i++) {
+		layouts[i] = descriptorSetLayout;
+	}
 	VkDescriptorSetAllocateInfo allocInfo = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
 		.descriptorPool = descriptorPool,
-		.descriptorSetCount = 1,
-		.pSetLayouts = &descriptorSetLayout,
+		.descriptorSetCount = globalImageCount,
+		.pSetLayouts = layouts,
 	};
 	
 	descriptorSets = malloc(sizeof(VkDescriptorSet)*globalImageCount);
@@ -1170,7 +1174,7 @@ void createDescriptorSets() {
 			.pTexelBufferView = NULL,
 		};
 		
-		//vkUpdateDescriptorSets(device, 1, descriptorWrite, 0, NULL);
+		vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, NULL);
 	}
 }
 
