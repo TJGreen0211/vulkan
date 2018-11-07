@@ -166,8 +166,10 @@ void cleanupSwapChain() {
 void cleanup() {
 	cleanupSwapChain();
 	
+	vkDestroyImage(device, textureImage, NULL);
+	vkFreeMemory(device, textureImageMemory, NULL);
+	
 	vkDestroyDescriptorPool(device, descriptorPool, NULL);
-
 	vkDestroyDescriptorSetLayout(device, descriptorSetLayout, NULL);
 	
 	for (unsigned int i = 0; i < globalImageCount; i++) {
@@ -919,6 +921,40 @@ void createCommandPool() {
 
 }
 
+VkCommandBuffer beginSingleTimeCommands() {
+	VkCommandBufferAllocateInfo allocInfo = {
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+		.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+		.commandPool = commandPool,
+		.commandBufferCount = 1,
+	};
+	VkCommandBuffer commandBuffer;
+	vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer);
+
+	VkCommandBufferBeginInfo beginInfo = {
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+	};
+
+	vkBeginCommandBuffer(commandBuffer, &beginInfo);
+	
+	return commandBuffer;
+}
+
+void endSingleTimeCommands(VkCommandBuffer commandBuffer) {
+	vkEndCommandBuffer(commandBuffer);
+
+	VkSubmitInfo submitInfo = {
+		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		.commandBufferCount = 1,
+		.pCommandBuffers = &commandBuffer,
+	};
+	vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+	vkQueueWaitIdle(graphicsQueue);
+
+	vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+}
+
 void createCommandBuffer() {
 	commandBuffers = malloc(globalImageCount*sizeof(VkCommandBuffer));
 	VkCommandBufferAllocateInfo allocInfo = {
@@ -1030,21 +1066,7 @@ void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyF
 }
 
 void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) {
-	VkCommandBufferAllocateInfo allocInfo = {
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-		.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-		.commandPool = commandPool,
-		.commandBufferCount = 1,
-	};
-	VkCommandBuffer commandBuffer;
-	vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer);
-
-	VkCommandBufferBeginInfo beginInfo = {
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-	};
-
-	vkBeginCommandBuffer(commandBuffer, &beginInfo);
+	VkCommandBuffer commandBuffer = beginSingleTimeCommands();
 
 	VkBufferCopy copyRegion = {
 		.srcOffset = 0,
@@ -1052,17 +1074,8 @@ void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) {
 		.size = size,
 	};
 	vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
-	vkEndCommandBuffer(commandBuffer);
-
-	VkSubmitInfo submitInfo = {
-		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-		.commandBufferCount = 1,
-		.pCommandBuffers = &commandBuffer,
-	};
-	vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-	vkQueueWaitIdle(graphicsQueue);
-
-	vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+	
+	endSingleTimeCommands(commandBuffer);
 }
 
 void createVertexBuffer() {
@@ -1201,6 +1214,97 @@ void createDescriptorPool() {
 	}
 }
 
+void createImage(unsigned int width, unsigned int height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage *image, VkDeviceMemory *imageMemory) {
+	VkImageCreateInfo imageInfo = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+		.imageType = VK_IMAGE_TYPE_2D,
+		.extent.width = width,
+		.extent.height = height,
+		.extent.depth = 1,
+		.mipLevels = 1,
+		.arrayLayers = 1,
+		.format = format,
+		.tiling = tiling,
+		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		.usage = usage,
+		.samples = VK_SAMPLE_COUNT_1_BIT,
+		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+	};
+	
+	if(vkCreateImage(device, &imageInfo, NULL, image) != VK_SUCCESS) {
+		printf("Failed to create image");
+		cleanup();
+	}
+	
+	VkMemoryRequirements memRequirements;
+	vkGetImageMemoryRequirements(device, *image, &memRequirements);
+	
+	VkMemoryAllocateInfo allocInfo = {
+		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+		.allocationSize = memRequirements.size,
+		.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties),
+	};
+	
+	if(vkAllocateMemory(device, &allocInfo, NULL, imageMemory) != VK_SUCCESS) {
+		printf("Failed to allocate image memory");
+		
+		vkBindImageMemory(device, *image, *imageMemory, 0);
+	}
+}
+
+void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
+	VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+	
+	VkImageMemoryBarrier barrier = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		.oldLayout = oldLayout,
+		.newLayout = newLayout,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image = image,
+		.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+		.subresourceRange.baseMipLevel = 0,
+		.subresourceRange.levelCount = 1,
+		.subresourceRange.baseArrayLayer = 0,
+		.subresourceRange.layerCount = 1,
+		.srcAccessMask = 0,
+		.dstAccessMask = 0,
+	};
+	
+	vkCmdPipelineBarrier(
+		commandBuffer,
+		0 /* TODO */, 0 /* TODO */,
+		0,
+		0, NULL,
+		0, NULL,
+		1, &barrier
+	);
+
+	endSingleTimeCommands(commandBuffer);
+}
+
+void copyBufferToImage(VkBuffer buffer, VkImage image, unsigned int width, unsigned int height) {
+	VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+	
+	VkBufferImageCopy region = {
+		.bufferOffset = 0,
+		.bufferRowLength = 0,
+		.bufferImageHeight = 0,
+		.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+		.imageSubresource.mipLevel = 0,
+		.imageSubresource.baseArrayLayer = 0,
+		.imageSubresource.layerCount = 1,
+		
+		.imageOffset = {0,0,0},
+		.imageExtent = {width,height,1},
+	};
+	
+	vkCmdCopyBufferToImage(commandBuffer, buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+	
+	
+	endSingleTimeCommands(commandBuffer);
+}
+
 void createTextureImage() {
 	int texWidth, texHeight, texChannels;
 	stbi_uc *pixels = stbi_load("textures/earth.png", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
@@ -1222,6 +1326,12 @@ void createTextureImage() {
 	vkUnmapMemory(device, stagingBufferMemory);
 	
 	stbi_image_free(pixels);
+	
+	createImage(texWidth, texHeight, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &textureImage, &textureImageMemory);
+	
+	//transitionImageLayout();
+	//	copyBufferToImage();
+	//transitionImageLayout();
 	
 	vkDestroyBuffer(device, stagingBuffer, NULL);
 	vkFreeMemory(device, stagingBufferMemory, NULL);
@@ -1302,13 +1412,6 @@ void updateUniformBuffer(double *deltaTime, double *lastFrame, uint32_t currentI
 	mat4 v = getViewMatrix();
 	mat4 p = perspective(45.0, swapChainExtent.width / swapChainExtent.height, 0.5, 100000);
 	p.m[1][1] *= -1;
-
-	//or(int i = 0; i < 4; i++) {
-	//	for(int j = 0; j < 4; j++) {
-	//		printf("%f, ", m.m[i][j]);
-	//	}
-	//	printf("\n");
-	//
 
 	uniformBufferObject ubo[1] = {
 		{{
