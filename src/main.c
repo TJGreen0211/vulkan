@@ -26,7 +26,7 @@
 #endif
 
 typedef struct vertexData {
-	float pos[2];
+	float pos[3];
 	float color[3];
 	float texCoord[2];
 	//VkVertexInputBindingDescription (*getBindingDescription);
@@ -66,15 +66,22 @@ const char *deviceExtensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
 unsigned int globalImageCount;
 
-const vertexData vertices[4] = {
-	{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-    {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-    {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-    {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+const vertexData vertices[8] = {
+	{{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+    {{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+    {{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+    {{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+
+	{{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+    {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+    {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+    {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}
+
 };
 
-const uint16_t vertexIndices[6] = {
-	0, 1, 2, 2, 3, 0
+const uint16_t vertexIndices[12] = {
+	0, 1, 2, 2, 3, 0,
+	4, 5, 6, 6, 7, 4
 };
 
 VkInstance instance;
@@ -110,6 +117,10 @@ VkDescriptorSet *descriptorSets;
 VkImage textureImage;
 VkDeviceMemory textureImageMemory;
 
+VkImage depthImage;
+VkDeviceMemory depthImageMemory;
+VkImageView depthImageView;
+
 VkImageView textureImageView;
 VkSampler textureSampler;
 
@@ -131,14 +142,14 @@ static VkVertexInputAttributeDescription *getAttributeDescriptions() {
 	VkVertexInputAttributeDescription *attributeDescriptions = malloc(3*sizeof(VkVertexInputAttributeDescription));
 	attributeDescriptions[0].binding = 0;
 	attributeDescriptions[0].location = 0;
-	attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+	attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
 	attributeDescriptions[0].offset = offsetof(vertexData, pos);
 
 	attributeDescriptions[1].binding = 0;
 	attributeDescriptions[1].location = 1;
 	attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
 	attributeDescriptions[1].offset = offsetof(vertexData, color);
-	
+
 	attributeDescriptions[2].binding = 0;
 	attributeDescriptions[2].location = 2;
 	attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
@@ -1203,7 +1214,7 @@ void createDescriptorSets() {
 			.offset = 0,
 			.range = sizeof(uniformBufferObject),
 		};
-		
+
 		VkDescriptorImageInfo imageInfo = {
 			.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 			.imageView = textureImageView,
@@ -1221,7 +1232,7 @@ void createDescriptorSets() {
 			.pImageInfo = NULL,
 			.pTexelBufferView = NULL,
 		};
-		
+
 		VkWriteDescriptorSet descriptorWriteImage = {
 			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
 			.dstSet = descriptorSets[i],
@@ -1231,7 +1242,7 @@ void createDescriptorSets() {
 			.descriptorCount = 1,
 			.pImageInfo = &imageInfo,
 		};
-		
+
 		VkWriteDescriptorSet *descriptorWrites = malloc(2*sizeof(VkWriteDescriptorSet));
 		descriptorWrites[0] = descriptorWrite;
 		descriptorWrites[1] = descriptorWriteImage;
@@ -1241,7 +1252,7 @@ void createDescriptorSets() {
 }
 
 void createDescriptorPool() {
-	
+
 	VkDescriptorPoolSize *poolSizes = malloc(2*sizeof(VkDescriptorPoolSize));
 	poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 	poolSizes[0].descriptorCount = globalImageCount;
@@ -1456,6 +1467,34 @@ void createTextureSampler() {
 	}
 }
 
+//VkFormat findSupportedFormat(VkFormat *candidates, VkImageTiling tiling, VkFormatFeatureFlags features) {
+//	VkFormatProperties props;
+//	vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &props);
+//
+//	if(tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features) {
+//		return format;
+//	} else if(tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures & features) == features) {
+//		return format;
+//	}
+//
+//	printf("No device formats supported.");
+//	cleanup();
+//}
+
+//VkFormat findDepthFormat() {
+//	VkFormat candidates[3] = {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT}
+//	return findSupportedFormat(canddidates, VK_IMAGE_TILING_OPTIMAL, VK_FORMATE_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
+//}
+
+int hasStencilComponent(VkFormat format) {
+    return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
+}
+
+void createDepthResources() {
+	//VkFormat depthFormat = findDepthFormat();
+
+}
+
 void initVulkan() {
 	createInstance();
 	setupDebugCallback();
@@ -1471,6 +1510,7 @@ void initVulkan() {
 	createGraphicsPipeline();
 	createFramebuffers();
 	createCommandPool();
+	createDepthResources();
 	createTextureImage();
 	createTextureImageView();
 	createTextureSampler();
